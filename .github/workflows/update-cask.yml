@@ -1,0 +1,83 @@
+name: Update Cask
+
+on:
+  repository_dispatch:
+    types: [update-cask]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to update (e.g. 1.0.0). Leave empty to use latest release."
+        required: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get release info
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          elif [ -n "${{ github.event.client_payload.version }}" ]; then
+            VERSION="${{ github.event.client_payload.version }}"
+          else
+            VERSION=$(gh api repos/wakatoken/wakatoken/releases/latest --jq '.tag_name' | sed 's/^v//')
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          SHA256_ARM64=$(gh api repos/wakatoken/wakatoken/releases/tags/v${VERSION} \
+            --jq '.assets[] | select(.name == "WakaToken_'${VERSION}'_aarch64.dmg") | .digest' \
+            | sed 's/^sha256://')
+          echo "sha256_arm64=$SHA256_ARM64" >> "$GITHUB_OUTPUT"
+
+          SHA256_X64=$(gh api repos/wakatoken/wakatoken/releases/tags/v${VERSION} \
+            --jq '.assets[] | select(.name == "WakaToken_'${VERSION}'_x64.dmg") | .digest' \
+            | sed 's/^sha256://')
+          echo "sha256_x64=$SHA256_X64" >> "$GITHUB_OUTPUT"
+
+          echo "Version: $VERSION"
+          echo "SHA256 arm64: $SHA256_ARM64"
+          echo "SHA256 x64: $SHA256_X64"
+
+      - name: Check if update is needed
+        id: check
+        run: |
+          CURRENT_VERSION=$(grep 'version "' Casks/wakatoken.rb | head -1 | sed 's/.*version "//;s/"//')
+          NEW_VERSION=${{ steps.release.outputs.version }}
+          if [ "$CURRENT_VERSION" = "$NEW_VERSION" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Already up to date: $CURRENT_VERSION"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Updating: $CURRENT_VERSION -> $NEW_VERSION"
+          fi
+
+      - name: Update Cask
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          VERSION=${{ steps.release.outputs.version }}
+          SHA256_ARM64=${{ steps.release.outputs.sha256_arm64 }}
+          SHA256_X64=${{ steps.release.outputs.sha256_x64 }}
+
+          sed -i "s/version \".*\"/version \"${VERSION}\"/" Casks/wakatoken.rb
+          sed -i "0,/sha256 \"[a-f0-9]\{64\}\"/s//sha256 \"${SHA256_ARM64}\"/" Casks/wakatoken.rb
+          sed -i "0,/sha256 \"[a-f0-9]\{64\}\"/!{s/sha256 \"[a-f0-9]\{64\}\"/sha256 \"${SHA256_X64}\"/}" Casks/wakatoken.rb
+
+          echo "Updated Casks/wakatoken.rb:"
+          cat Casks/wakatoken.rb
+
+      - name: Commit and push
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          VERSION=${{ steps.release.outputs.version }}
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/wakatoken.rb
+          git commit -m "chore: update wakatoken to v${VERSION}"
+          git push
