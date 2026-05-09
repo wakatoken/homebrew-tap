@@ -1,14 +1,14 @@
 cask "wakatoken" do
-  version "1.1.1"
+  version "1.1.3"
 
   on_arm do
     url "https://github.com/wakatoken/wakatoken/releases/download/v#{version}/WakaToken_#{version}_aarch64.dmg"
-    sha256 ""
+    sha256 "20f32f0edc8449d96497e544eaa09764260f496a104e05d67f3fa1ee619f93bd"
   end
 
   on_intel do
     url "https://github.com/wakatoken/wakatoken/releases/download/v#{version}/WakaToken_#{version}_x64.dmg"
-    sha256 ""
+    sha256 "c01f995141e0e8e766401ec419ca6df75536fdff011e4df03290e96914171a63"
   end
 
   name "WakaToken"
