@@ -33,16 +33,35 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-          SHA256_ARM64=$(gh api repos/wakatoken/wakatoken/releases/tags/v${VERSION} \
-            --jq '.assets[] | select(.name == "WakaToken_'${VERSION}'_aarch64.dmg") | .digest' \
-            | sed 's/^sha256://')
-          grep -Eq '^[a-f0-9]{64}$' <<< "$SHA256_ARM64"
-          echo "sha256_arm64=$SHA256_ARM64" >> "$GITHUB_OUTPUT"
+          is_sha256() {
+            grep -Eq '^[a-f0-9]{64}$' <<< "$1"
+          }
 
-          SHA256_X64=$(gh api repos/wakatoken/wakatoken/releases/tags/v${VERSION} \
-            --jq '.assets[] | select(.name == "WakaToken_'${VERSION}'_x64.dmg") | .digest' \
-            | sed 's/^sha256://')
-          grep -Eq '^[a-f0-9]{64}$' <<< "$SHA256_X64"
+          for attempt in {1..60}; do
+            SHA256_ARM64=$(gh api repos/wakatoken/wakatoken/releases/tags/v${VERSION} \
+              --jq '.assets[] | select(.name == "WakaToken_'${VERSION}'_aarch64.dmg") | .digest' \
+              | sed 's/^sha256://')
+
+            SHA256_X64=$(gh api repos/wakatoken/wakatoken/releases/tags/v${VERSION} \
+              --jq '.assets[] | select(.name == "WakaToken_'${VERSION}'_x64.dmg") | .digest' \
+              | sed 's/^sha256://')
+
+            if is_sha256 "$SHA256_ARM64" && is_sha256 "$SHA256_X64"; then
+              break
+            fi
+
+            if [ "$attempt" -eq 60 ]; then
+              echo "Timed out waiting for v${VERSION} macOS dmg assets"
+              echo "SHA256 arm64: $SHA256_ARM64"
+              echo "SHA256 x64: $SHA256_X64"
+              exit 1
+            fi
+
+            echo "Waiting for v${VERSION} macOS dmg assets (${attempt}/60)"
+            sleep 30
+          done
+
+          echo "sha256_arm64=$SHA256_ARM64" >> "$GITHUB_OUTPUT"
           echo "sha256_x64=$SHA256_X64" >> "$GITHUB_OUTPUT"
 
           echo "Version: $VERSION"
